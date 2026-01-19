@@ -30,7 +30,9 @@ def extract_list_data(html):
         # Indeks baru untuk nama dan alamat
         data_string = json.loads(
             html.split(";window.APP_INITIALIZATION_STATE=")[1].split(";window.APP_FLAGS")[0]
-        )[9][0] 
+        )[9][0]
+
+        print(f"=> Data String : {data_string}")
 
         if not data_string or '·' not in data_string:
             return None, None
@@ -63,8 +65,10 @@ def validation(business_name, compared_name, business_location, compared_locatio
     # Cek fuzzy ratio
     ratio = fuzz.ratio(business_name.lower(), compared_name.lower())
     partial_ratio = fuzz.partial_ratio(business_name.lower(), compared_name.lower())
+
+    print(f"\nratio: {ratio}\npartial_ratio: {partial_ratio}")
     
-    name_match = (ratio >= 75 or partial_ratio >= 90)
+    name_match = (ratio >= 60 or partial_ratio >= 80)
 
     if not name_match:
         # Jika nama tidak cocok, langsung return False
@@ -117,13 +121,16 @@ def scrape_place_title(request: Request, link, metadata):
     business_location = metadata["business_location"] # Ambil lokasi dari metadata
     cookies = metadata["cookies"]
 
-    print(f"\nbusiness_name : {business_name}\nbusiness_location : {business_location}")
+    # print(f"\nbusiness_name : {business_name}\nbusiness_location : {business_location}")
     
     try:
-        html = request.get(link, cookies=cookies, timeout=12).text
+        html = request.get(link, cookies=cookies, timeout=30).text
+        
         # Gunakan fungsi ekstraksi data yang baru
         compared_name, compared_location = extract_list_data(html) 
-        
+        print(f"\nbusiness_name : {business_name}\nbusiness_location : {business_location}")
+        print(f"\ncompared_name : {compared_name}\ncompared_location : {compared_location}")
+
         if compared_name: # Cukup cek nama, validasi lengkap di fungsi validation
             # Lakukan validasi lengkap (nama & lokasi)
             is_found = validation(business_name, compared_name, business_location, compared_location) 
@@ -167,6 +174,8 @@ def crosscheck_business(driver: Driver, query):
         if is_list_view:
             links = driver.get_all_links('[role="feed"] > div > div > a')
             links = links[:5]
+
+            # print(links)
             
             if not links:
                 return (business_name, query, False, None, None)
@@ -183,7 +192,7 @@ def crosscheck_business(driver: Driver, query):
 
             print(results)
             # return
-
+            
             # Proses hasil list view yang sekarang (link, is_found)
             final_found_status = False
             if isinstance(results, list) and len(results) > 0:
@@ -215,7 +224,10 @@ def crosscheck_business(driver: Driver, query):
                 # Ekstrak Kabupaten/Kota dari alamat
                 location_match = re.search(r'([^,]+?)\s+(?:Regency|City)', address_text, re.IGNORECASE)
 
-                # print(f"\n=> location_match : {location_match}")
+                if not location_match:
+                    location_match = re.search(r'\b(?:Kabupaten|Kota)\s+([^,]+)', address_text, re.IGNORECASE)
+
+                print(f"\n=> location_match : {location_match}")
 
                 if location_match:
                     # group(1) adalah bagian nama kabupatennya
