@@ -116,6 +116,8 @@ def scrape_place_title(request: Request, link, metadata):
     business_name = metadata["business_name"]
     business_location = metadata["business_location"] # Ambil lokasi dari metadata
     cookies = metadata["cookies"]
+
+    print(f"\nbusiness_name : {business_name}\nbusiness_location : {business_location}")
     
     try:
         html = request.get(link, cookies=cookies, timeout=12).text
@@ -167,7 +169,7 @@ def crosscheck_business(driver: Driver, query):
             links = links[:5]
             
             if not links:
-                return (business_name, query, False)
+                return (business_name, query, False, None, None)
             
             scrape_place_obj: AsyncQueueResult = scrape_place_title()
             cookies = driver.get_cookies_dict()
@@ -178,6 +180,9 @@ def crosscheck_business(driver: Driver, query):
                                                   "cookies": cookies})
             
             results = scrape_place_obj.get()
+
+            print(results)
+            # return
 
             # Proses hasil list view yang sekarang (link, is_found)
             final_found_status = False
@@ -194,8 +199,8 @@ def crosscheck_business(driver: Driver, query):
                                 if is_found:
                                      final_found_status = True
                                      break
-
-            return (business_name, query, final_found_status)
+            time.sleep(20)
+            return (business_name, query, final_found_status, None, None)
 
         # --- Proses Halaman Profil ---
         else:
@@ -256,7 +261,7 @@ def crosscheck_business(driver: Driver, query):
             
     except Exception as e:
         print(f"Error processing {query}: {e}")
-        return (business_name, query, False)
+        return (business_name, query, False, None, None)
 
 def load_businesses_from_file(file_path):
     businesses = []
