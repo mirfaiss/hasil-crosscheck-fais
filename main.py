@@ -7,6 +7,44 @@ from fuzzywuzzy import fuzz
 import csv
 import time
 from urllib.parse import unquote
+from shapely.geometry import Point, shape
+
+
+
+def load_pasaman_polygon(geojson_path):
+    with open(geojson_path) as f:
+        geojson = json.load(f)
+
+    return shape(geojson['features'][0]['geometry'])
+
+pasaman_polygon = load_pasaman_polygon('13.08_Pasaman.geojson')
+
+def filter_check_pasaman(places, pasaman_polygon):
+    print("=== CEK USAHA DI KABUPATEN PASAMAN ===\n")
+
+    result = []
+
+    for name, coord in places:
+        lat = float(coord['lat'])
+        lon = float(coord['long'])
+
+        point = Point(lon, lat)
+
+        # Gunakan covers agar titik di batas tetap dianggap masuk
+        is_in_pasaman = pasaman_polygon.covers(point)
+
+        if is_in_pasaman:
+            result.append([name, coord])
+
+        print(f"Nama Usaha : {name}")
+        print(f"Koordinat  : lat={lat}, long={lon}")
+        print(f"Status     : {'DI PASAMAN ✅' if is_in_pasaman else 'BUKAN PASAMAN ❌'}")
+        print("-" * 50)
+
+    return result
+
+
+
 
 
 
@@ -178,37 +216,14 @@ def extract_business_name(query):
         # Jika tidak ada pemisah Kabupaten/Kota, anggap seluruh query adalah nama
         return query, ""
 
-# @request(parallel=5, async_queue=True, max_retry=5, output=None)
-# def scrape_place_title(request: Request, link, metadata):
-#     business_name = metadata["business_name"]
-#     business_location = metadata["business_location"] # Ambil lokasi dari metadata
-#     # cookies = metadata["cookies"]
 
-#     # print(f"\nbusiness_name : {business_name}\nbusiness_location : {business_location}")
-    
-#     try:
-#         html = request.get(link, cookies=cookies, timeout=30).text
-        
-#         # Gunakan fungsi ekstraksi data yang baru
-#         compared_name, compared_location = extract_list_data(html) 
-#         print(f"\nbusiness_name : {business_name}\nbusiness_location : {business_location}")
-#         print(f"\ncompared_name : {compared_name}\ncompared_location : {compared_location}")
-
-#         if compared_name: # Cukup cek nama, validasi lengkap di fungsi validation
-#             # Lakukan validasi lengkap (nama & lokasi)
-#             is_found = validation(business_name, compared_name, business_location, compared_location) 
-#             return (link, is_found) # Hanya kembalikan link dan status found
-#         return (link, False) # Jika nama tidak bisa diekstrak, anggap tidak ditemukan
-#     except Exception as e:
-#         print(f"Error scraping {link}: {e}")
-#         return (link, False)
 
 @browser(block_images_and_css=True,
          #headless=True,
          output=None,
          wait_for_complete_page_load=True,
          lang=Lang.Indonesian,
-         cache=False)
+         cache=True)
 def crosscheck_business(driver: Driver, query):
     # Dapatkan nama dan lokasi dari query awal
     business_name, business_location = extract_business_name(query) 
@@ -245,11 +260,16 @@ def crosscheck_business(driver: Driver, query):
             
 
             places = extract_place_and_coordinates(links)
-
             print(places)
+
+            filter_pasaman = filter_check_pasaman(places, pasaman_polygon)
+
+            print(filter_pasaman)
+            
+
             print("\n\t===> Find the best match:")
             print("\n===> Find the best match:")
-            best_match = find_best_match(business_name, places)
+            best_match = find_best_match(business_name, filter_pasaman)
             print(best_match)
 
 
