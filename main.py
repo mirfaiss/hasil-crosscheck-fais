@@ -6,6 +6,69 @@ import re
 from fuzzywuzzy import fuzz
 import csv
 import time
+from urllib.parse import unquote
+
+
+
+def find_best_match(input_name, places, min_ratio=70, min_partial=85):
+    best_match = None
+    best_score = 0
+
+    nama_usaha = re.sub(r'\s*kabupaten\s+pasaman\s*', ' ', input_name, flags=re.IGNORECASE).strip()
+
+    for place_name, coord in places:
+        ratio_score = fuzz.ratio(nama_usaha.lower(), place_name.lower())
+        partial_score = fuzz.partial_ratio(nama_usaha.lower(), place_name.lower())
+
+        print(f"\nUsaha {place_name} => Ratio : {ratio_score}, Partial ratio: {partial_score}")
+
+        # Ambil skor tertinggi dari dua metode
+        final_score = max(ratio_score, partial_score)
+
+        if (
+            (ratio_score >= min_ratio and partial_score >= min_partial) and final_score > best_score
+        ):
+            best_score = final_score
+            best_match = {
+                'name': place_name,
+                'coordinates': coord,
+                'ratio': ratio_score,
+                'status': 'Ditemukan',
+                'partial_ratio': partial_score,
+                'score': final_score
+            }
+
+    return best_match
+
+
+def extract_place_and_coordinates(urls):
+    results = []
+
+    for url in urls:
+        # Decode URL (%2F, %60, dll)
+        decoded_url = unquote(url)
+
+        # 1. Ekstrak nama tempat
+        name_match = re.search(r'/place/([^/]+)/data', decoded_url)
+        name = name_match.group(1).replace('+', ' ') if name_match else None
+
+        # 2. Ekstrak koordinat
+        lat_match = re.search(r'!3d([-0-9.]+)', decoded_url)
+        long_match = re.search(r'!4d([-0-9.]+)', decoded_url)
+
+        lat = lat_match.group(1) if lat_match else None
+        long = long_match.group(1) if long_match else None
+
+        results.append([
+            name,
+            {
+                'lat': lat,
+                'long': long
+            }
+        ])
+
+    return results
+
 
 
 
@@ -68,7 +131,7 @@ def validation(business_name, compared_name, business_location, compared_locatio
 
     print(f"\nratio: {ratio}\npartial_ratio: {partial_ratio}")
     
-    name_match = (ratio >= 60 or partial_ratio >= 80)
+    name_match = (ratio >= 70 or partial_ratio >= 80)
 
     if not name_match:
         # Jika nama tidak cocok, langsung return False
@@ -115,30 +178,30 @@ def extract_business_name(query):
         # Jika tidak ada pemisah Kabupaten/Kota, anggap seluruh query adalah nama
         return query, ""
 
-@request(parallel=5, async_queue=True, max_retry=5, output=None)
-def scrape_place_title(request: Request, link, metadata):
-    business_name = metadata["business_name"]
-    business_location = metadata["business_location"] # Ambil lokasi dari metadata
-    cookies = metadata["cookies"]
+# @request(parallel=5, async_queue=True, max_retry=5, output=None)
+# def scrape_place_title(request: Request, link, metadata):
+#     business_name = metadata["business_name"]
+#     business_location = metadata["business_location"] # Ambil lokasi dari metadata
+#     # cookies = metadata["cookies"]
 
-    # print(f"\nbusiness_name : {business_name}\nbusiness_location : {business_location}")
+#     # print(f"\nbusiness_name : {business_name}\nbusiness_location : {business_location}")
     
-    try:
-        html = request.get(link, cookies=cookies, timeout=30).text
+#     try:
+#         html = request.get(link, cookies=cookies, timeout=30).text
         
-        # Gunakan fungsi ekstraksi data yang baru
-        compared_name, compared_location = extract_list_data(html) 
-        print(f"\nbusiness_name : {business_name}\nbusiness_location : {business_location}")
-        print(f"\ncompared_name : {compared_name}\ncompared_location : {compared_location}")
+#         # Gunakan fungsi ekstraksi data yang baru
+#         compared_name, compared_location = extract_list_data(html) 
+#         print(f"\nbusiness_name : {business_name}\nbusiness_location : {business_location}")
+#         print(f"\ncompared_name : {compared_name}\ncompared_location : {compared_location}")
 
-        if compared_name: # Cukup cek nama, validasi lengkap di fungsi validation
-            # Lakukan validasi lengkap (nama & lokasi)
-            is_found = validation(business_name, compared_name, business_location, compared_location) 
-            return (link, is_found) # Hanya kembalikan link dan status found
-        return (link, False) # Jika nama tidak bisa diekstrak, anggap tidak ditemukan
-    except Exception as e:
-        print(f"Error scraping {link}: {e}")
-        return (link, False)
+#         if compared_name: # Cukup cek nama, validasi lengkap di fungsi validation
+#             # Lakukan validasi lengkap (nama & lokasi)
+#             is_found = validation(business_name, compared_name, business_location, compared_location) 
+#             return (link, is_found) # Hanya kembalikan link dan status found
+#         return (link, False) # Jika nama tidak bisa diekstrak, anggap tidak ditemukan
+#     except Exception as e:
+#         print(f"Error scraping {link}: {e}")
+#         return (link, False)
 
 @browser(block_images_and_css=True,
          #headless=True,
@@ -180,37 +243,38 @@ def crosscheck_business(driver: Driver, query):
             if not links:
                 return (business_name, query, False, None, None)
             
-            scrape_place_obj: AsyncQueueResult = scrape_place_title()
-            cookies = driver.get_cookies_dict()
-            
-            # Tambahkan lokasi ke metadata
-            scrape_place_obj.put(links, metadata={"business_name": business_name, 
-                                                  "business_location": business_location, 
-                                                  "cookies": cookies})
-            
-            results = scrape_place_obj.get()
 
-            print(results)
+            places = extract_place_and_coordinates(links)
+
+            print(places)
+            print("\n\t===> Find the best match:")
+            print("\n===> Find the best match:")
+            best_match = find_best_match(business_name, places)
+            print(best_match)
+
+
             # return
             
             # Proses hasil list view yang sekarang (link, is_found)
-            final_found_status = False
-            if isinstance(results, list) and len(results) > 0:
-                 if isinstance(results[0], tuple): # Jika hasilnya list of tuples (link, is_found)
-                      for _link, is_found in results:
-                           if is_found:
-                                final_found_status = True
-                                break
-                 else: # Jika hasilnya flat list [link1, found1, link2, found2, ...]
-                      for i in range(0, len(results), 2):
-                           if i+1 < len(results):
-                                is_found = results[i+1]
-                                if is_found:
-                                     final_found_status = True
-                                     break
-            time.sleep(20)
-            return (business_name, query, final_found_status, None, None)
-
+            # final_found_status = False
+            # if isinstance(results, list) and len(results) > 0:
+            #      if isinstance(results[0], tuple): # Jika hasilnya list of tuples (link, is_found)
+            #           for _link, is_found in results:
+            #                if is_found:
+            #                     final_found_status = True
+            #                     break
+            #      else: # Jika hasilnya flat list [link1, found1, link2, found2, ...]
+            #           for i in range(0, len(results), 2):
+            #                if i+1 < len(results):
+            #                     is_found = results[i+1]
+            #                     if is_found:
+            #                          final_found_status = True
+            #                          break
+            # time.sleep(3)
+            # return (business_name, query, final_found_status, None, None)
+            if best_match :
+                return (business_name, query, True, best_match['coordinates']['lat'], best_match['coordinates']['long'])
+            return (business_name, query, False, None, None)
         # --- Proses Halaman Profil ---
         else:
             # Ambil lokasi pembanding dari div
